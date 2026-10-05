@@ -7,7 +7,14 @@
 ## 실행
 
 ```bash
-python3 -m venv .venv && source .venv/bin/activate   # Python 3.10 ~ 3.12 권장 (mediapipe 휠 지원 범위)
+./run.sh            # venv 생성 + 설치 + 실행을 한 번에 (두 번째부터는 바로 실행)
+./run.sh --debug    # 인자는 그대로 blink_reminder.py 로 전달
+```
+
+수동으로 하려면 (Python 3.10 ~ 3.12, mediapipe 휠 지원 범위):
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt                       # mediapipe, pyobjc-framework-Cocoa
 python blink_reminder.py
 ```
