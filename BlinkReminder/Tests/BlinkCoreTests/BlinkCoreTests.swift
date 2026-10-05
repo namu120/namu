@@ -74,21 +74,33 @@ final class EyeMetricsTests: XCTestCase {
 }
 
 final class NtfyClientTests: XCTestCase {
-    func testRequestIsJSONPublishToServerRoot() throws {
+    func testRequestPostsToTopicWithHeaders() throws {
         let c = NtfyClient(server: "https://ntfy.sh ", topic: " my-topic ")
-        let req = try c.makeRequest(title: "제목", message: "본문", priority: 9, tags: ["eye"])
-        XCTAssertEqual(req.url?.absoluteString, "https://ntfy.sh")
+        let req = try c.makeRequest(title: "제목", message: "본문 내용", priority: 9, tags: ["eye"])
+        XCTAssertEqual(req.url?.absoluteString, "https://ntfy.sh/my-topic")
         XCTAssertEqual(req.httpMethod, "POST")
-        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(req.httpBody)) as? [String: Any])
-        XCTAssertEqual(json["topic"] as? String, "my-topic")
-        XCTAssertEqual(json["title"] as? String, "제목")
-        XCTAssertEqual(json["priority"] as? Int, 5)      // 1~5 로 클램프
-        XCTAssertEqual(json["tags"] as? [String], ["eye"])
+        XCTAssertEqual(String(data: try XCTUnwrap(req.httpBody), encoding: .utf8), "본문 내용")
+        XCTAssertEqual(req.value(forHTTPHeaderField: "Priority"), "5")          // 1~5 로 클램프
+        XCTAssertEqual(req.value(forHTTPHeaderField: "Tags"), "eye")
+        XCTAssertEqual(req.value(forHTTPHeaderField: "Title"), "=?UTF-8?B?7KCc66qp?=")   // "제목" RFC 2047
+        XCTAssertEqual(NtfyClient.headerValue("Blink!"), "Blink!")
+    }
+
+    func testServerFieldTolerance() throws {
+        // 서버 칸에 주제까지 붙여 넣은 경우: 호스트만 쓰고, 주제 칸이 비었으면 경로를 주제로
+        let full = try NtfyClient(server: "https://ntfy.sh/blink-abc", topic: "").resolved()
+        XCTAssertEqual(full.base.absoluteString, "https://ntfy.sh")
+        XCTAssertEqual(full.topic, "blink-abc")
+        let both = try NtfyClient(server: "https://ntfy.sh/blink-abc", topic: "other").resolved()
+        XCTAssertEqual(both.topic, "other")
+        let noScheme = try NtfyClient(server: "ntfy.example.com:8080", topic: "t").resolved()
+        XCTAssertEqual(noScheme.base.absoluteString, "https://ntfy.example.com:8080")
+        let empty = try NtfyClient(server: "", topic: "t").resolved()
+        XCTAssertEqual(empty.base.absoluteString, "https://ntfy.sh")
     }
 
     func testValidation() {
         XCTAssertThrowsError(try NtfyClient(server: "https://ntfy.sh", topic: "").makeRequest(title: "", message: "", priority: 3, tags: []))
-        XCTAssertThrowsError(try NtfyClient(server: "ntfy.sh", topic: "t").makeRequest(title: "", message: "", priority: 3, tags: []))
         XCTAssertThrowsError(try NtfyClient(server: "ftp://ntfy.sh", topic: "t").makeRequest(title: "", message: "", priority: 3, tags: []))
         let t = NtfyClient.randomTopic()
         XCTAssertTrue(t.hasPrefix("blink-"))
