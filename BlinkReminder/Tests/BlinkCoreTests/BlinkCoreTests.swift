@@ -46,7 +46,7 @@ final class BlinkTrackerTests: XCTestCase {
         // now=101 기준: 10.2s, 25.2s 는 둘 다 '1~2분 전' 칸, 100.2s 는 '현재 1분' 칸
         XCTAssertEqual(t.perMinuteHistory(minutes: 3, now: 101), [0, 2, 1])
         XCTAssertEqual(t.perMinuteHistory(minutes: 1, now: 101), [1])
-        XCTAssertEqual(t.perMinuteHistory(minutes: 2, now: 130), [3, 0])
+        XCTAssertEqual(t.perMinuteHistory(minutes: 2, now: 130), [2, 1])
     }
 }
 
