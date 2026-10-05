@@ -1,2 +1,3 @@
-mediapipe>=0.10.14
+# 1.0.x 는 macOS 에서 FaceLandmarker 가 Metal 경로로 크래시하므로 0.10.x 로 고정
+mediapipe>=0.10.14,<1.0
 pyobjc-framework-Cocoa>=10 ; sys_platform == "darwin"

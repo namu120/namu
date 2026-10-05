@@ -179,8 +179,10 @@ class FaceBlinkScorer:
         from mediapipe.tasks.python import vision
 
         self._mp = mp
+        # delegate=CPU 를 명시: macOS 에서 GPU(Metal) 경로로 가면 mediapipe 1.0.x 가 크래시한다
+        base = mp_tasks.BaseOptions(model_asset_path=model_path, delegate=mp_tasks.BaseOptions.Delegate.CPU)
         options = vision.FaceLandmarkerOptions(
-            base_options=mp_tasks.BaseOptions(model_asset_path=model_path),
+            base_options=base,
             running_mode=vision.RunningMode.VIDEO,
             num_faces=1,
             output_face_blendshapes=True,

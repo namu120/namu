@@ -22,10 +22,11 @@ if [ ! -x .venv/bin/python ]; then
   echo "[setup] venv 생성 ($PY)"
   "$PY" -m venv .venv
 fi
-if [ ! -f .venv/.installed ]; then
+# requirements.txt 가 바뀌면 다시 설치한다
+if ! cmp -s requirements.txt .venv/.installed; then
   echo "[setup] 의존성 설치 (1~2분)"
   .venv/bin/pip install --quiet --upgrade pip
   .venv/bin/pip install --quiet -r requirements.txt
-  touch .venv/.installed
+  cp requirements.txt .venv/.installed
 fi
 exec .venv/bin/python blink_reminder.py "$@"
