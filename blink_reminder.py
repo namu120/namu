@@ -208,11 +208,65 @@ class FaceBlinkScorer:
         self._landmarker.close()
 
 
+def ensure_camera_permission() -> bool:
+    """macOS: 카메라를 열기 전에 권한을 먼저 요청하고 결과를 기다린다.
+    OpenCV 는 권한이 '미결정' 상태면 요청만 던지고 즉시 실패하고, 실행 중에 허용된 권한은
+    검은 프레임으로 이어지는 경우가 많아서 열기 전에 확정해 둔다. 메인 스레드에서 호출할 것."""
+    if sys.platform != "darwin":
+        return True
+    try:
+        from AVFoundation import AVCaptureDevice, AVMediaTypeVideo
+        from Foundation import NSDate, NSDefaultRunLoopMode, NSRunLoop
+    except ImportError:
+        return True   # pyobjc-framework-AVFoundation 이 없으면 OpenCV 에 맡긴다
+    status = AVCaptureDevice.authorizationStatusForMediaType_(AVMediaTypeVideo)
+    if status == 3:                     # authorized
+        return True
+    if status in (1, 2):                # restricted / denied
+        print(
+            "[camera] 카메라 권한이 꺼져 있습니다. 시스템 설정 > 개인정보 보호 및 보안 > 카메라에서 "
+            "지금 쓰는 터미널 앱을 켜고 다시 실행하세요.",
+            file=sys.stderr,
+        )
+        return False
+    print("[camera] 카메라 권한을 요청합니다. 팝업에서 허용을 눌러 주세요.", flush=True)
+    done = threading.Event()
+    result = [False]
+
+    def completion(granted):
+        result[0] = bool(granted)
+        done.set()
+
+    AVCaptureDevice.requestAccessForMediaType_completionHandler_(AVMediaTypeVideo, completion)
+    runloop = NSRunLoop.currentRunLoop()
+    while not done.is_set():            # 팝업이 떠 있는 동안 런루프를 돌려준다
+        runloop.runMode_beforeDate_(NSDefaultRunLoopMode, NSDate.dateWithTimeIntervalSinceNow_(0.1))
+    if not result[0]:
+        print("[camera] 카메라 권한이 거부되었습니다.", file=sys.stderr)
+    return result[0]
+
+
+def list_cameras() -> list[str]:
+    """macOS: 연결된 카메라 이름 목록 (OpenCV 인덱스와 대체로 같은 순서)."""
+    if sys.platform != "darwin":
+        return []
+    try:
+        from AVFoundation import AVCaptureDevice, AVMediaTypeVideo
+        return [str(d.localizedName()) for d in AVCaptureDevice.devicesWithMediaType_(AVMediaTypeVideo)]
+    except Exception:
+        return []
+
+
 def open_camera(index: int, width: int = FRAME_W, height: int = FRAME_H, fps: int = FPS):
     """VideoCapture 를 연다. 반드시 메인 스레드에서 호출할 것
     (macOS 는 카메라 권한 프롬프트가 메인 스레드에서만 정상 동작한다)."""
     import cv2
 
+    if not ensure_camera_permission():
+        raise RuntimeError("카메라 권한이 없습니다.")
+    names = list_cameras()
+    if names:
+        print("[camera] 연결된 카메라: " + ", ".join(f"{i}: {n}" for i, n in enumerate(names)), flush=True)
     backend = cv2.CAP_AVFOUNDATION if sys.platform == "darwin" else cv2.CAP_ANY
     cap = cv2.VideoCapture(index, backend)
     if not cap.isOpened():
@@ -245,6 +299,7 @@ class CameraWorker(threading.Thread):
         self.interval = 1.0 / max(1, fps)
         self.debug = debug
         self._stop_event = threading.Event()
+        self._dark_frames = 0
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -260,6 +315,17 @@ class CameraWorker(threading.Thread):
                 self._stop_event.wait(0.2)
                 continue
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            brightness = float(frame.mean())
+            if brightness < 3.0:                 # 거의 완전한 검정 프레임
+                self._dark_frames += 1
+                if self._dark_frames == 30:
+                    print(
+                        "[camera] 경고: 카메라에서 검은 프레임만 들어옵니다. 권한을 방금 허용했다면 "
+                        "앱을 종료하고 다시 실행하세요. 다른 카메라면 --camera 1 을 시도해 보세요.",
+                        file=sys.stderr, flush=True,
+                    )
+            else:
+                self._dark_frames = 0
             try:
                 scores = self.scorer.score(rgb, int(t0 * 1000))
             except Exception as e:          # 감지 실패가 앱 전체를 죽이지 않게
@@ -271,9 +337,9 @@ class CameraWorker(threading.Thread):
                 now = time.monotonic()
                 snap = self.tracker.snapshot()
                 if scores is None:
-                    line = "L=----  R=----  avg=----  face=0"
+                    line = f"L=----  R=----  avg=----  face=0  bright={brightness:5.1f}"
                 else:
-                    line = f"L={scores[0]:.2f}  R={scores[1]:.2f}  avg={avg:.2f}  face=1"
+                    line = f"L={scores[0]:.2f}  R={scores[1]:.2f}  avg={avg:.2f}  face=1  bright={brightness:5.1f}"
                 print(
                     f"[debug] {line}  closed={int(snap['closed'])}  "
                     f"since_blink={now - snap['last_blink']:4.1f}s  "
@@ -587,6 +653,7 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--model", default=MODEL_PATH, help="face_landmarker.task 경로 (없으면 자동 다운로드)")
     p.add_argument("--debug", action="store_true", help="프레임마다 blink 점수를 터미널에 출력")
     p.add_argument("--headless", action="store_true", help="오버레이/메뉴바 없이 터미널에서 감지만 (튜닝용)")
+    p.add_argument("--list-cameras", action="store_true", help="연결된 카메라 목록만 출력하고 종료 (macOS)")
     args = p.parse_args(argv)
     if args.open_thresh >= args.close_thresh:
         p.error("--open-thresh 는 --close-thresh 보다 작아야 합니다")
@@ -597,6 +664,10 @@ def parse_args(argv=None) -> argparse.Namespace:
 
 def main(argv=None) -> int:
     args = parse_args(argv)
+    if args.list_cameras:
+        names = list_cameras()
+        print("\n".join(f"{i}: {n}" for i, n in enumerate(names)) if names else "(목록을 가져올 수 없음)")
+        return 0
     model_path = ensure_model(args.model)
     tracker = BlinkTracker(args.close_thresh, args.open_thresh)
     scorer = FaceBlinkScorer(model_path)
