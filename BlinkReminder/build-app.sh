@@ -6,6 +6,7 @@
 #   ./build-app.sh --no-run   # 빌드만
 set -euo pipefail
 cd "$(dirname "$0")"
+trap 'echo; echo "[build] 실패했습니다. 위의 error: 줄을 복사해서 보내주세요. (기존 앱은 그대로 실행 중)" >&2' ERR
 
 if ! command -v swift >/dev/null 2>&1; then
   echo "swift 가 없습니다. Xcode Command Line Tools 를 설치하세요: xcode-select --install" >&2
@@ -35,6 +36,9 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp ".build/release/BlinkReminder" "$APP/Contents/MacOS/BlinkReminder"
 cp Info.plist "$APP/Contents/Info.plist"
+STAMP="$(date +%Y%m%d.%H%M)"
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $STAMP" "$APP/Contents/Info.plist"
+echo "[build] 빌드 번호 $STAMP (설정 > 일반 탭에서 확인)"
 
 if [ ! -f build/AppIcon.icns ]; then
   echo "[build] 앱 아이콘 생성"

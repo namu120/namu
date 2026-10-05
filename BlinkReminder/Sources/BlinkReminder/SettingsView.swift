@@ -118,7 +118,7 @@ struct SettingsView: View {
                     Button("테스트 알림 보내기") { state.sendTestNotification() }
                         .disabled(state.settings.ntfyTopic.trimmingCharacters(in: .whitespaces).isEmpty)
                     if let r = state.lastNotifyResult {
-                        Text(r).font(.caption).foregroundStyle(r.contains("실패") ? .red : .secondary)
+                        Text(r).font(.caption).foregroundStyle(r.contains("실패") ? Color.red : Color.secondary)
                     }
                 }
             }
@@ -148,8 +148,17 @@ struct SettingsView: View {
             Button("기본값으로 되돌리기") { state.resetSettings() }
             Text("영상은 메모리에서만 처리되며 저장하거나 전송하지 않습니다.")
                 .font(.caption).foregroundStyle(.secondary)
+            LabeledContent("빌드", value: Self.buildStamp)
+                .font(.caption).foregroundStyle(.secondary)
         }
         .formStyle(.grouped)
+    }
+
+    /// build-app.sh 가 CFBundleVersion 에 빌드 시각(YYYYMMDD.HHMM)을 넣는다
+    static var buildStamp: String {
+        let v = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
+        let s = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        return "\(s) (\(v))"
     }
 
     // MARK: 공통 슬라이더
