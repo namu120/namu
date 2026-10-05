@@ -2,6 +2,7 @@ import AppKit
 import Combine
 import ServiceManagement
 import SwiftUI
+import UniformTypeIdentifiers
 import BlinkCore
 
 enum AppStatus: Equatable {
@@ -70,8 +71,11 @@ final class AppState: ObservableObject {
     @Published private(set) var sessionMinutes = 0
     @Published private(set) var loginItemError: String?
     @Published private(set) var lastNotifyResult: String?
+    /// 일별 통계가 바뀔 때마다 증가 (통계 창 갱신용, 최대 1초에 한 번)
+    @Published private(set) var statsRevision = 0
 
     let tracker: BlinkTracker
+    let stats: StatsStore
     private let processor: FrameProcessor
     private let camera = CameraService()
     private let overlay = OverlayController()
@@ -87,6 +91,11 @@ final class AppState: ObservableObject {
     private var lastNotifyAt: TimeInterval = -1e9
     private var notifiedThisEpisode = false
     private var notifySending = false
+    private var recordedBlinks = 0
+    private var lastActiveRecord: TimeInterval?
+    private var lastStatsSave = ProcessInfo.processInfo.systemUptime
+    private var lastRevisionBump = 0.0
+    private var terminateObserver: Any?
 
     init() {
         var loaded = Self.loadSettings()
@@ -97,6 +106,8 @@ final class AppState: ObservableObject {
         settings = loaded
         tracker = BlinkTracker(closeThreshold: loaded.closeThreshold, openThreshold: loaded.openThreshold)
         processor = FrameProcessor(tracker: tracker, earOpen: loaded.earOpen, earClosed: loaded.earClosed)
+        stats = StatsStore(url: Self.statsURL)
+        do { try stats.load() } catch { print("[stats] 불러오기 실패: \(error)") }
 
         _ = NSApplication.shared.setActivationPolicy(.accessory)      // Dock 아이콘 없음 (Info.plist LSUIElement 와 이중 안전)
         overlay.rebuild(settings: loaded)
@@ -117,7 +128,19 @@ final class AppState: ObservableObject {
         RunLoop.main.add(t, forMode: .common)                       // 메뉴가 열려 있어도 돈다
         timer = t
 
+        terminateObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification, object: nil, queue: .main
+        ) { [stats] _ in
+            _ = try? stats.saveIfNeeded()
+        }
+
         Task { await startCamera() }
+    }
+
+    static var statsURL: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
+        return base.appendingPathComponent("BlinkReminder/stats.json")
     }
 
     // MARK: 설정 저장/적용
@@ -184,6 +207,7 @@ final class AppState: ObservableObject {
     func quit() {
         camera.stop()
         overlay.hide()
+        _ = try? stats.saveIfNeeded()
         NSApplication.shared.terminate(nil)
     }
 
@@ -225,6 +249,7 @@ final class AppState: ObservableObject {
             do {
                 try await client.send(title: title, message: message, priority: priority, tags: ["eye"])
                 self?.lastNotifyResult = "\(stamp) 전송 완료"
+                if !test { self?.stats.recordNotification(at: Date()) }
             } catch {
                 self?.lastNotifyResult = "\(stamp) 실패: \(error.localizedDescription)"
             }
@@ -277,7 +302,10 @@ final class AppState: ObservableObject {
         }
         overlay.render(alpha: shown, progress: progress)
 
-        if target > 0 && !overlayActive { overlayTriggers += 1 }
+        if target > 0 && !overlayActive {
+            overlayTriggers += 1
+            stats.recordOverlayTrigger(at: Date())
+        }
         overlayActive = target > 0
 
         // iPad 알림: 완전히 어두워진 순간 한 번, 쿨다운 안에는 다시 보내지 않음
@@ -317,6 +345,7 @@ final class AppState: ObservableObject {
     }
 
     private func refreshStats(snap: BlinkTracker.Snapshot, now: TimeInterval, progress: Double) {
+        recordDaily(snap: snap, now: now)
         blinksLastMinute = tracker.blinks(inLast: 60, now: now)
         let elapsed = max(1, min(600, now - sessionStart))
         blinksPer10MinAvg = Double(tracker.blinks(inLast: 600, now: now)) / elapsed * 60
@@ -328,5 +357,47 @@ final class AppState: ObservableObject {
         overlayAlpha = currentAlpha
         debug = processor.debug
         sessionMinutes = Int((now - sessionStart) / 60)
+    }
+
+    /// 일별 통계 기록: 새 깜빡임, 얼굴이 보인 시간, 최장 공백. 30초마다 디스크에 저장.
+    private func recordDaily(snap: BlinkTracker.Snapshot, now: TimeInterval) {
+        let wall = Date()
+        var changed = false
+        let newBlinks = snap.totalBlinks - recordedBlinks
+        if newBlinks > 0 {
+            stats.record(blinks: newBlinks, at: wall)
+            recordedBlinks = snap.totalBlinks
+            changed = true
+        }
+        let active = !paused && snap.faceVisible && now - snap.lastUpdate <= OverlayPolicy.staleAfter
+        if active {
+            if let last = lastActiveRecord {
+                stats.recordActive(seconds: min(now - last, 2), at: wall)
+                changed = true
+            }
+            lastActiveRecord = now
+        } else {
+            lastActiveRecord = nil
+        }
+        if snap.longestGap > 0 {
+            stats.recordGap(snap.longestGap, at: wall)
+        }
+        if changed, now - lastRevisionBump >= 1 {
+            lastRevisionBump = now
+            statsRevision += 1
+        }
+        if now - lastStatsSave >= 30 {
+            lastStatsSave = now
+            do { try stats.saveIfNeeded() } catch { print("[stats] 저장 실패: \(error)") }
+        }
+    }
+
+    func exportCSV() {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "blink-stats.csv"
+        panel.allowedContentTypes = [.commaSeparatedText]
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do { try stats.csv().write(to: url, atomically: true, encoding: .utf8) } catch { print("[stats] CSV 실패: \(error)") }
     }
 }

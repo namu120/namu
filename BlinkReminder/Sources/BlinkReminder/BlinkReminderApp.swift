@@ -22,5 +22,11 @@ struct BlinkReminderApp: App {
             SettingsView()
                 .environmentObject(state)
         }
+
+        Window("깜빡임 통계", id: "trends") {
+            TrendView()
+                .environmentObject(state)
+        }
+        .defaultSize(width: 720, height: 640)
     }
 }

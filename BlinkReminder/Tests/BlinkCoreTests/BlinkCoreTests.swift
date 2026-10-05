@@ -144,3 +144,75 @@ final class OverlayPolicyTests: XCTestCase {
         XCTAssertEqual(OverlayPolicy.breathing(elapsed: 1.3), 0.9, accuracy: 1e-9)
     }
 }
+
+final class StatsStoreTests: XCTestCase {
+    var cal: Calendar {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = TimeZone(identifier: "Asia/Seoul")!
+        return c
+    }
+
+    func makeStore() -> StatsStore {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("blink-stats-\(UUID().uuidString)/stats.json")
+        return StatsStore(url: url, calendar: cal)
+    }
+
+    func date(_ y: Int, _ m: Int, _ d: Int, _ h: Int = 0, _ min: Int = 0) -> Date {
+        cal.date(from: DateComponents(year: y, month: m, day: d, hour: h, minute: min))!
+    }
+
+    func testKeysAndMinutes() {
+        let s = makeStore()
+        XCTAssertEqual(s.dayKey(date(2026, 10, 5, 23, 59)), "2026-10-05")
+        XCTAssertEqual(s.minuteOfDay(date(2026, 10, 5, 13, 7)), 13 * 60 + 7)
+        XCTAssertEqual(s.date(fromKey: "2026-10-05"), date(2026, 10, 5))
+    }
+
+    func testRecordAndRates() {
+        let s = makeStore()
+        let t = date(2026, 10, 5, 14, 30)
+        s.recordActive(seconds: 120, at: t)
+        s.record(blinks: 30, at: t)
+        s.record(blinks: 0, at: t)
+        s.recordActive(seconds: 60, at: date(2026, 10, 5, 15, 0))
+        s.record(blinks: 6, at: date(2026, 10, 5, 15, 0))
+        s.recordOverlayTrigger(at: t)
+        s.recordGap(12, at: t)
+        s.recordGap(8, at: t)                       // 더 짧으면 무시
+        let day = s.day(t)
+        XCTAssertEqual(day.totalBlinks, 36)
+        XCTAssertEqual(day.activeSeconds, 180)
+        XCTAssertEqual(day.blinksPerMinute!, 12, accuracy: 1e-9)
+        XCTAssertEqual(day.overlayTriggers, 1)
+        XCTAssertEqual(day.longestGap, 12)
+        let h = day.hourly
+        XCTAssertEqual(h[14].blinks, 30)
+        XCTAssertEqual(h[14].blinksPerMinute!, 15, accuracy: 1e-9)
+        XCTAssertEqual(h[15].blinks, 6)
+        XCTAssertNil(h[16].blinksPerMinute)
+        XCTAssertNil(s.day(date(2026, 10, 4)).blinksPerMinute)
+        let week = s.lastDays(7, endingAt: t)
+        XCTAssertEqual(week.count, 7)
+        XCTAssertEqual(week.last!.date, date(2026, 10, 5))
+        XCTAssertEqual(week.first!.date, date(2026, 9, 29))
+        XCTAssertEqual(week.last!.stats.totalBlinks, 36)
+    }
+
+    func testSaveLoadAndCSV() throws {
+        let s = makeStore()
+        let t = date(2026, 10, 5, 9, 0)
+        XCTAssertFalse(try s.saveIfNeeded(now: t))     // 변경 없으면 저장 안 함
+        s.recordActive(seconds: 60, at: t)
+        s.record(blinks: 10, at: t)
+        XCTAssertTrue(try s.saveIfNeeded(now: t))
+        let s2 = StatsStore(url: s.url, calendar: cal)
+        try s2.load()
+        XCTAssertEqual(s2.days, s.days)
+        XCTAssertEqual(s2.csv(), "date,blinks,active_minutes,blinks_per_minute,overlay_triggers,notifications,longest_gap_seconds\n2026-10-05,10,1.0,10.0,0,0,0\n")
+        // 보존 기간이 지난 날은 저장할 때 정리
+        s.recordActive(seconds: 60, at: date(2024, 1, 1))
+        try s.saveIfNeeded(now: t)
+        XCTAssertNil(s.days["2024-01-01"])
+        XCTAssertNotNil(s.days["2026-10-05"])
+    }
+}

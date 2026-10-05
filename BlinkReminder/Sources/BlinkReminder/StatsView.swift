@@ -4,6 +4,7 @@ import BlinkCore
 
 struct StatsView: View {
     @EnvironmentObject var state: AppState
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -135,6 +136,11 @@ struct StatsView: View {
         HStack {
             Button(state.paused ? "재개" : "일시정지") { state.togglePause() }
                 .keyboardShortcut("p")
+            Button("통계…") {
+                NSApplication.shared.activate(ignoringOtherApps: true)
+                openWindow(id: "trends")
+            }
+            .keyboardShortcut("t")
             Spacer()
             settingsButton
             Button("종료") { state.quit() }
