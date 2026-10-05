@@ -1,8 +1,33 @@
-# namu — 눈 깜빡임 유도 앱 (macOS, 프로토타입)
+# namu — 눈 깜빡임 유도 앱 (macOS)
 
 웹캠으로 깜빡임을 감지하다가 일정 시간(기본 7초) 안 깜빡이면 화면 가장자리가 서서히
-어두워지고, 깜빡이는 즉시 풀리는 메뉴바(👁) 상주 앱. 전체가 `blink_reminder.py` 한 파일이다.
-영상은 메모리에서만 처리하며 저장·전송하지 않는다.
+어두워지고, 깜빡이는 즉시 풀리는 메뉴바(👁) 상주 앱. 영상은 메모리에서만 처리하며 저장·전송하지 않는다.
+
+두 가지 구현이 있다.
+
+| | `BlinkReminder/` (Swift, 네이티브 앱) | `blink_reminder.py` (Python 프로토타입) |
+|---|---|---|
+| 감지 | Apple Vision 눈 랜드마크 → 눈 종횡비(EAR) | MediaPipe FaceLandmarker blendshapes |
+| UI | 메뉴바 통계 창(분당 그래프), 설정 창, 비네팅 애니메이션 | 메뉴바 메뉴, 터미널 디버그 |
+| 설치 | `./build-app.sh` 한 번 → .app | venv + pip |
+
+## Swift 앱 (BlinkReminder/)
+
+```bash
+cd BlinkReminder
+./build-app.sh              # 빌드 + 실행 (Xcode Command Line Tools 필요: xcode-select --install)
+./build-app.sh --test       # BlinkCore 테스트까지 돌린 뒤 빌드
+./build-app.sh --install    # ~/Applications 에 설치 후 실행 (로그인 시 자동 실행용)
+```
+
+- 첫 실행 때 카메라 권한 팝업이 뜬다. 권한은 BlinkReminder 앱 자체에 붙는다.
+- 메뉴바 눈 아이콘 → 통계 창: 최근 1분/10분 평균/마지막 깜빡임/최장 공백, 최근 30분 분당 그래프,
+  어두워지기까지 남은 시간, 일시정지/설정/종료.
+- 설정(⌘,): 타이밍·모양·감지·일반. 감지 탭에서 "지금 EAR" 값을 보며 뜬 눈/감은 눈 기준을 버튼으로 보정할 수 있다.
+- 구조: `Sources/BlinkCore` 는 플랫폼 독립 로직(히스테리시스, 통계, EAR, 오버레이 정책)이라 iPad 타깃에서 그대로 재사용한다.
+  `Sources/BlinkReminder` 가 macOS 전용(AVFoundation + Vision, AppKit 오버레이, SwiftUI 메뉴바/설정).
+
+## Python 프로토타입 (blink_reminder.py)
 
 ## 실행
 
