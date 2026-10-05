@@ -24,6 +24,8 @@ cd BlinkReminder
 - 메뉴바 눈 아이콘 → 통계 창: 최근 1분/10분 평균/마지막 깜빡임/최장 공백, 최근 30분 분당 그래프,
   어두워지기까지 남은 시간, 일시정지/설정/종료.
 - 설정(⌘,): 타이밍·모양·감지·일반. 감지 탭에서 "지금 EAR" 값을 보며 뜬 눈/감은 눈 기준을 버튼으로 보정할 수 있다.
+- iPad/iPhone 알림: 설정 > 알림 탭에서 ntfy 를 켜면 오버레이가 완전히 어두워질 때 푸시 알림을 보낸다.
+  iPad 에 App Store 의 ntfy 앱을 설치하고 같은 주제(topic)를 구독하면 GoodNotes 등 어떤 앱 위에서도 배너가 뜬다.
 - 구조: `Sources/BlinkCore` 는 플랫폼 독립 로직(히스테리시스, 통계, EAR, 오버레이 정책)이라 iPad 타깃에서 그대로 재사용한다.
   `Sources/BlinkReminder` 가 macOS 전용(AVFoundation + Vision, AppKit 오버레이, SwiftUI 메뉴바/설정).
 

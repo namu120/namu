@@ -69,6 +69,7 @@ final class AppState: ObservableObject {
     @Published private(set) var cameras: [CameraService.Device] = []
     @Published private(set) var sessionMinutes = 0
     @Published private(set) var loginItemError: String?
+    @Published private(set) var lastNotifyResult: String?
 
     let tracker: BlinkTracker
     private let processor: FrameProcessor
@@ -83,6 +84,9 @@ final class AppState: ObservableObject {
     private let sessionStart = ProcessInfo.processInfo.systemUptime
     private var cameraFailure: AppStatus?
     private var screenObserver: Any?
+    private var lastNotifyAt: TimeInterval = -1e9
+    private var notifiedThisEpisode = false
+    private var notifySending = false
 
     init() {
         var loaded = Self.loadSettings()
@@ -199,6 +203,35 @@ final class AppState: ObservableObject {
         objectWillChange.send()
     }
 
+    // MARK: iPad 알림 (ntfy)
+
+    func generateTopic() {
+        settings.ntfyTopic = NtfyClient.randomTopic()
+    }
+
+    func sendTestNotification() {
+        sendNotification(test: true)
+    }
+
+    private func sendNotification(test: Bool) {
+        guard !notifySending else { return }
+        notifySending = true
+        let client = NtfyClient(server: settings.ntfyServer, topic: settings.ntfyTopic)
+        let title = test ? "테스트 · " + settings.notifyTitle : settings.notifyTitle
+        let message = settings.notifyMessage
+        let priority = settings.notifyPriority
+        let stamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
+        Task { [weak self] in
+            do {
+                try await client.send(title: title, message: message, priority: priority, tags: ["eye"])
+                self?.lastNotifyResult = "\(stamp) 전송 완료"
+            } catch {
+                self?.lastNotifyResult = "\(stamp) 실패: \(error.localizedDescription)"
+            }
+            self?.notifySending = false
+        }
+    }
+
     // MARK: 보정
 
     /// 지금 보이는 EAR 로 '뜬 눈' 기준을 잡는다 (살짝 여유를 둠).
@@ -246,6 +279,19 @@ final class AppState: ObservableObject {
 
         if target > 0 && !overlayActive { overlayTriggers += 1 }
         overlayActive = target > 0
+
+        // iPad 알림: 완전히 어두워진 순간 한 번, 쿨다운 안에는 다시 보내지 않음
+        if progress >= 1 {
+            if !notifiedThisEpisode {
+                notifiedThisEpisode = true
+                if settings.notifyEnabled, now - lastNotifyAt >= settings.notifyCooldownSeconds {
+                    lastNotifyAt = now
+                    sendNotification(test: false)
+                }
+            }
+        } else if progress == 0 {
+            notifiedThisEpisode = false
+        }
 
         // 상태
         let newStatus: AppStatus

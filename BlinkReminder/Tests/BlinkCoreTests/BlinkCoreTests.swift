@@ -73,6 +73,30 @@ final class EyeMetricsTests: XCTestCase {
     }
 }
 
+final class NtfyClientTests: XCTestCase {
+    func testRequestIsJSONPublishToServerRoot() throws {
+        let c = NtfyClient(server: "https://ntfy.sh ", topic: " my-topic ")
+        let req = try c.makeRequest(title: "제목", message: "본문", priority: 9, tags: ["eye"])
+        XCTAssertEqual(req.url?.absoluteString, "https://ntfy.sh")
+        XCTAssertEqual(req.httpMethod, "POST")
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(req.httpBody)) as? [String: Any])
+        XCTAssertEqual(json["topic"] as? String, "my-topic")
+        XCTAssertEqual(json["title"] as? String, "제목")
+        XCTAssertEqual(json["priority"] as? Int, 5)      // 1~5 로 클램프
+        XCTAssertEqual(json["tags"] as? [String], ["eye"])
+    }
+
+    func testValidation() {
+        XCTAssertThrowsError(try NtfyClient(server: "https://ntfy.sh", topic: "").makeRequest(title: "", message: "", priority: 3, tags: []))
+        XCTAssertThrowsError(try NtfyClient(server: "ntfy.sh", topic: "t").makeRequest(title: "", message: "", priority: 3, tags: []))
+        XCTAssertThrowsError(try NtfyClient(server: "ftp://ntfy.sh", topic: "t").makeRequest(title: "", message: "", priority: 3, tags: []))
+        let t = NtfyClient.randomTopic()
+        XCTAssertTrue(t.hasPrefix("blink-"))
+        XCTAssertEqual(t.count, 26)
+        XCTAssertNotEqual(t, NtfyClient.randomTopic())
+    }
+}
+
 final class OverlayPolicyTests: XCTestCase {
     var settings = BlinkSettings()   // limit 7, ramp 4, max 0.85, fade 0.2
 

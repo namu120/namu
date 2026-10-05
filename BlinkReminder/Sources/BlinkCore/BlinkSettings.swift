@@ -36,6 +36,19 @@ public struct BlinkSettings: Codable, Equatable {
     public var cameraID: String? = nil
     public var frameRate: Int = 15
 
+    // ── iPad 알림 (ntfy) ──
+    /// 오버레이가 완전히 어두워지면 ntfy 로 푸시 알림을 보낸다
+    public var notifyEnabled: Bool = false
+    public var ntfyServer: String = "https://ntfy.sh"
+    /// 구독 주제. 사실상 비밀번호 역할이므로 길고 무작위로
+    public var ntfyTopic: String = ""
+    /// 같은 알림을 다시 보내기까지 최소 간격(초)
+    public var notifyCooldownSeconds: Double = 60
+    /// ntfy 우선순위 1~5 (3 기본, 4 높음, 5 긴급)
+    public var notifyPriority: Int = 4
+    public var notifyTitle: String = "눈 깜빡이세요 👁"
+    public var notifyMessage: String = "한참 동안 깜빡이지 않았어요. 멀리 한 번 보고 눈을 쉬어 주세요."
+
     public init() {}
     public static let `default` = BlinkSettings()
 
@@ -58,5 +71,12 @@ public struct BlinkSettings: Codable, Equatable {
         earClosed = try c.decodeIfPresent(Double.self, forKey: .earClosed) ?? d.earClosed
         cameraID = try c.decodeIfPresent(String.self, forKey: .cameraID)
         frameRate = try c.decodeIfPresent(Int.self, forKey: .frameRate) ?? d.frameRate
+        notifyEnabled = try c.decodeIfPresent(Bool.self, forKey: .notifyEnabled) ?? d.notifyEnabled
+        ntfyServer = try c.decodeIfPresent(String.self, forKey: .ntfyServer) ?? d.ntfyServer
+        ntfyTopic = try c.decodeIfPresent(String.self, forKey: .ntfyTopic) ?? d.ntfyTopic
+        notifyCooldownSeconds = try c.decodeIfPresent(Double.self, forKey: .notifyCooldownSeconds) ?? d.notifyCooldownSeconds
+        notifyPriority = try c.decodeIfPresent(Int.self, forKey: .notifyPriority) ?? d.notifyPriority
+        notifyTitle = try c.decodeIfPresent(String.self, forKey: .notifyTitle) ?? d.notifyTitle
+        notifyMessage = try c.decodeIfPresent(String.self, forKey: .notifyMessage) ?? d.notifyMessage
     }
 }
